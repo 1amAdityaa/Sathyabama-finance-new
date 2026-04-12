@@ -2,6 +2,18 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const Centre = require('../models/Centre');
 
+// ── Role constants ────────────────────────────────────────────────────────────
+const VALID_ROLES = ['ADMIN', 'FACULTY', 'FINANCE_OFFICER'];
+
+/**
+ * Normalize a role string to its ENUM form.
+ * Accepts: 'admin', 'Admin', 'Finance', 'finance officer', 'FINANCE_OFFICER', etc.
+ */
+const normalizeRole = (role) => {
+    if (!role) return null;
+    return role.trim().toUpperCase().replace(/\s+/g, '_');
+};
+
 const generateToken = (user) => {
     return jwt.sign(
         { id: user._id, role: user.role, email: user.email },
@@ -13,13 +25,24 @@ const generateToken = (user) => {
 exports.register = async (req, res) => {
     try {
         const { name, email, password, role, department, centre } = req.body;
-        
+
+        // Normalize and validate role
+        const normalizedRole = normalizeRole(role);
+        console.log('[Register] Incoming role:', role, '→ Normalized:', normalizedRole);
+
+        if (!normalizedRole || !VALID_ROLES.includes(normalizedRole)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}`
+            });
+        }
+
         const existingUser = await User.findOne({ where: { email } });
         if (existingUser) {
             return res.status(400).json({ success: false, message: 'User already exists' });
         }
         
-        const user = await User.create({ name, email, password, role, department, centre });
+        const user = await User.create({ name, email, password, role: normalizedRole, department, centre });
         
         const token = generateToken(user);
         res.status(201).json({
@@ -53,7 +76,19 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
     try {
         const { email, password, role } = req.body;
-        
+
+        // Normalize incoming role before any validation
+        const normalizedRole = normalizeRole(role);
+        console.log('[Login] Incoming role:', role, '→ Normalized:', normalizedRole);
+
+        // If a role was provided, validate it is a known ENUM value
+        if (normalizedRole && !VALID_ROLES.includes(normalizedRole)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}`
+            });
+        }
+
         const user = await User.findOne({ where: { email } });
         if (!user) {
             return res.status(401).json({ success: false, message: 'Incorrect email' });
@@ -64,8 +99,12 @@ exports.login = async (req, res) => {
             return res.status(401).json({ success: false, message: 'Incorrect password' });
         }
 
-        if (role && user.role !== role) {
-            return res.status(403).json({ success: false, message: 'Invalid role selection' });
+        // Compare normalized role against the stored ENUM value
+        if (normalizedRole && user.role !== normalizedRole) {
+            return res.status(403).json({
+                success: false,
+                message: `Role mismatch. Your account is registered as '${user.role}'. Please select the correct role.`
+            });
         }
 
         if (user.status === 'Inactive') {

@@ -105,7 +105,13 @@ export const AuthProvider = ({ children }) => {
     // ── Login ────────────────────────────────────────────────────────────────
     const login = async (email, password, role) => {
         try {
-            const response = await apiClient.post('/auth/login', { email, password, role });
+            // Normalize role to ENUM format before sending to API.
+            // Converts e.g. "Admin", "finance officer" → "ADMIN", "FINANCE_OFFICER"
+            const normalizedRole = role
+                ? role.trim().toUpperCase().replace(/\s+/g, '_')
+                : role;
+
+            const response = await apiClient.post('/auth/login', { email, password, role: normalizedRole });
             const { user: userData, token: userToken } = response.data;
 
             localStorage.setItem('token', userToken);
